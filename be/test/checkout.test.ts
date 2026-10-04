@@ -72,7 +72,7 @@ test('failed payment releases stock and the coupon, and the cart can be retried'
     assert.equal(bad.status, 402);
     assert.equal(bad.body.error.code, 'PAYMENT_FAILED');
     assert.equal(s.shop.getProduct('gadget').inventory, 50, 'stock restored');
-    assert.equal(s.shop.coupons.get(coupon.code).status, 'AVAILABLE', 'coupon not lost');
+    assert.equal(s.shop.coupons.get(coupon.code)?.status, 'AVAILABLE', 'coupon not lost');
     assert.equal(s.shop.orders.size, 1, 'no order recorded');
     fail = false;
     const good = await s.call('POST', `/carts/${cart}/checkout`, { couponCode: coupon.code });
@@ -123,7 +123,7 @@ test('report reconciles with orders and coupons and is read-only', async () => {
   const s = await start({ n: 2, x: 10 });
   try {
     const orders = [];
-    for (const [pid, q] of [['widget', 1], ['gadget', 2]]) {
+    for (const [pid, q] of [['widget', 1], ['gadget', 2]] as [string, number][]) {
       orders.push((await s.call('POST', `/carts/${await s.cartWith(pid, q)}/checkout`, {})).body);
     }
     const { body: coupon } = await s.call('POST', '/admin/coupons');
@@ -145,7 +145,7 @@ test('validation: bad quantities, unknown products, empty cart, closed cart', as
   const s = await start();
   try {
     const { body: cart } = await s.call('POST', '/carts');
-    const add = (b) => s.call('POST', `/carts/${cart.id}/items`, b);
+    const add = (b: unknown) => s.call('POST', `/carts/${cart.id}/items`, b);
     for (const quantity of [0, -1, 1.5, '2', null, 101]) {
       assert.equal((await add({ productId: 'widget', quantity })).body.error.code, 'INVALID_QUANTITY', String(quantity));
     }

@@ -1,4 +1,6 @@
-export const seedProducts = () => [
+import type { Product } from './types.js';
+
+export const seedProducts = (): Product[] => [
   { id: 'widget',   name: 'Widget',                  priceCents: 1999,  inventory: 100 },
   { id: 'gadget',   name: 'Gadget',                  priceCents: 4950,  inventory: 50 },
   { id: 'gizmo',    name: 'Gizmo',                   priceCents: 999,   inventory: 200 },

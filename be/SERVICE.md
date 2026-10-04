@@ -1,11 +1,13 @@
 # Checkout & Rewards Service
 
-Zero runtime dependencies. Requires Node >= 20 (developed on 24).
+TypeScript (strict). Zero runtime dependencies; dev dependencies are only `typescript` and `@types/node`. Requires Node >= 20 (developed on 24).
 
 ```bash
 cd be
-npm start            # http://localhost:3000   (PORT, ORDER_MILESTONE_N=5, COUPON_PERCENT_X=10)
-npm test             # node:test, no install step needed
+npm install
+npm start            # compiles to dist/ and serves http://localhost:3000   (PORT, ORDER_MILESTONE_N=5, COUPON_PERCENT_X=10)
+npm test             # compiles, then runs node:test on dist/
+npm run typecheck    # tsc --noEmit
 ```
 
 Data is in memory and re-seeded on every start (6 products; `sneaker` has only 3 units).

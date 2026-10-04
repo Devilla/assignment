@@ -1,11 +1,17 @@
 import http from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { ApiError, badRequest, notFound } from './errors.js';
 import { Shop } from './shop.js';
 import { FakePaymentGateway } from './payment.js';
 import { loadConfig } from './config.js';
 import { seedProducts } from './seed.js';
+import type { Config, PaymentGateway, Product } from './types.js';
 
-export function createShop(opts = {}) {
+interface Ctx { params: Record<string, string>; body: any }
+interface Out { status: number; body: unknown; headers?: Record<string, string> }
+interface Route { method: string; re: RegExp; handler: (ctx: Ctx) => Out | Promise<Out> }
+
+export function createShop(opts: { config?: Config; payment?: PaymentGateway; products?: Product[] } = {}): Shop {
   return new Shop({
     config: opts.config ?? loadConfig(),
     payment: opts.payment ?? new FakePaymentGateway(),
@@ -14,9 +20,9 @@ export function createShop(opts = {}) {
 }
 
 // Admin operations live under /admin. Authn/authz is intentionally not implemented.
-export function buildRoutes(shop) {
-  const r = [];
-  const add = (method, path, handler) =>
+export function buildRoutes(shop: Shop): Route[] {
+  const r: Route[] = [];
+  const add = (method: string, path: string, handler: Route['handler']) =>
     r.push({ method, re: new RegExp('^' + path.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$'), handler });
 
   add('GET', '/products', () => ({ status: 200, body: { products: shop.listProducts() } }));
@@ -27,7 +33,7 @@ export function buildRoutes(shop) {
   add('DELETE', '/carts/:id/items/:productId', ({ params }) => ({ status: 200, body: shop.removeItem(params.id, params.productId) }));
   add('POST', '/carts/:id/checkout', async ({ params, body }) => {
     const { order, replayed } = await shop.checkout(params.id, body);
-    return { status: replayed ? 200 : 201, body: order, headers: replayed ? { 'Idempotent-Replayed': 'true' } : {} };
+    return { status: replayed ? 200 : 201, body: order, headers: replayed ? { 'Idempotent-Replayed': 'true' } : undefined } satisfies Out;
   });
   add('GET', '/orders/:id', ({ params }) => ({ status: 200, body: shop.getOrder(params.id) }));
 
@@ -38,11 +44,11 @@ export function buildRoutes(shop) {
   return r;
 }
 
-export function createServer(shop) {
+export function createServer(shop: Shop): http.Server {
   const routes = buildRoutes(shop);
   return http.createServer(async (req, res) => {
     try {
-      const path = new URL(req.url, 'http://x').pathname.replace(/\/+$/, '') || '/';
+      const path = new URL(req.url ?? '/', 'http://x').pathname.replace(/\/+$/, '') || '/';
       let matchedPath = false;
       for (const route of routes) {
         const m = route.re.exec(path);
@@ -50,7 +56,7 @@ export function createServer(shop) {
         matchedPath = true;
         if (route.method !== req.method) continue;
         const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readJson(req) : undefined;
-        const out = await route.handler({ params: { ...m.groups }, body });
+        const out = await route.handler({ params: { ...m.groups } as Record<string, string>, body });
         return send(res, out.status, out.body, out.headers);
       }
       throw matchedPath
@@ -66,8 +72,8 @@ export function createServer(shop) {
   });
 }
 
-async function readJson(req) {
-  const chunks = [];
+async function readJson(req: IncomingMessage): Promise<any> {
+  const chunks: Buffer[] = [];
   let size = 0;
   for await (const c of req) {
     size += c.length;
@@ -82,7 +88,7 @@ async function readJson(req) {
   }
 }
 
-function send(res, status, body, headers = {}) {
+function send(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   const data = JSON.stringify(body);
   res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), ...headers });
   res.end(data);

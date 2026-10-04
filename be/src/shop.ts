@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { badRequest, conflict, notFound, unprocessable, ApiError } from './errors.js';
 import { percentDiscountCents } from './money.js';
+import type { Cart, Config, Coupon, Order, OrderLine, PaymentGateway, Product } from './types.js';
 
 const MAX_QTY_PER_LINE = 100;
 
@@ -21,14 +22,18 @@ const MAX_QTY_PER_LINE = 100;
  * With a real database the same sections become transactions (see DECISIONS.md).
  */
 export class Shop {
-  constructor({ config, payment, products }) {
+  readonly products: Map<string, Product>;
+  readonly carts = new Map<string, Cart>();
+  readonly orders = new Map<string, Order>();
+  readonly coupons = new Map<string, Coupon>(); // code -> coupon
+  private orderSeq = 0;
+  readonly config: Config;
+  private readonly payment: PaymentGateway;
+
+  constructor({ config, payment, products }: { config: Config; payment: PaymentGateway; products: Product[] }) {
     this.config = config;
     this.payment = payment;
     this.products = new Map(products.map((p) => [p.id, { ...p }]));
-    this.carts = new Map();
-    this.orders = new Map();
-    this.coupons = new Map(); // code -> coupon
-    this.orderSeq = 0;
   }
 
   // ---------- products ----------
@@ -36,14 +41,14 @@ export class Shop {
     return [...this.products.values()].map((p) => ({ ...p }));
   }
 
-  getProduct(id) {
+  getProduct(id: string): Product {
     const p = this.products.get(id);
     if (!p) throw notFound('PRODUCT_NOT_FOUND', `Product '${id}' does not exist`);
     return p;
   }
 
   /** Admin: change price and/or inventory. */
-  updateProduct(id, body) {
+  updateProduct(id: string, body: { priceCents?: number; inventory?: number } | undefined) {
     const p = this.getProduct(id);
     const { priceCents, inventory } = body ?? {};
     if (priceCents === undefined && inventory === undefined) {
@@ -62,21 +67,21 @@ export class Shop {
 
   // ---------- carts ----------
   createCart() {
-    const cart = { id: randomUUID(), status: 'OPEN', items: new Map(), createdAt: now() };
+    const cart: Cart = { id: randomUUID(), status: 'OPEN', items: new Map(), createdAt: now() };
     this.carts.set(cart.id, cart);
     return this.viewCart(cart);
   }
 
-  getCart(id) {
+  getCart(id: string): Cart {
     const c = this.carts.get(id);
     if (!c) throw notFound('CART_NOT_FOUND', `Cart '${id}' does not exist`);
     return c;
   }
 
-  viewCart(cart) {
+  viewCart(cart: Cart) {
     let subtotal = 0;
     const items = [...cart.items.values()].map((it) => {
-      const p = this.products.get(it.productId);
+      const p = this.getProduct(it.productId);
       const lineTotalCents = p.priceCents * it.quantity;
       subtotal += lineTotalCents;
       return {
@@ -101,20 +106,20 @@ export class Shop {
     };
   }
 
-  assertOpen(cart) {
+  assertOpen(cart: Cart): void {
     if (cart.status !== 'OPEN') {
       throw conflict('CART_NOT_OPEN', `Cart is ${cart.status} and can no longer be modified`, { status: cart.status });
     }
   }
 
-  static validateQuantity(q, { allowZero = false } = {}) {
-    if (!Number.isInteger(q) || q < (allowZero ? 0 : 1) || q > MAX_QTY_PER_LINE) {
-      throw badRequest('INVALID_QUANTITY', `quantity must be an integer between ${allowZero ? 0 : 1} and ${MAX_QTY_PER_LINE}`);
+  static validateQuantity(q: unknown): asserts q is number {
+    if (typeof q !== 'number' || !Number.isInteger(q) || q < 1 || q > MAX_QTY_PER_LINE) {
+      throw badRequest('INVALID_QUANTITY', `quantity must be an integer between 1 and ${MAX_QTY_PER_LINE}`);
     }
   }
 
   /** Adding an already-present product increases its quantity. */
-  addItem(cartId, body) {
+  addItem(cartId: string, body: { productId?: unknown; quantity?: unknown } | undefined) {
     const cart = this.getCart(cartId);
     this.assertOpen(cart);
     const { productId, quantity } = body ?? {};
@@ -127,7 +132,7 @@ export class Shop {
     return this.viewCart(cart);
   }
 
-  setItemQuantity(cartId, productId, body) {
+  setItemQuantity(cartId: string, productId: string, body: { quantity?: unknown } | undefined) {
     const cart = this.getCart(cartId);
     this.assertOpen(cart);
     if (!cart.items.has(productId)) throw notFound('ITEM_NOT_IN_CART', `Product '${productId}' is not in the cart`);
@@ -139,7 +144,7 @@ export class Shop {
     return this.viewCart(cart);
   }
 
-  removeItem(cartId, productId) {
+  removeItem(cartId: string, productId: string) {
     const cart = this.getCart(cartId);
     this.assertOpen(cart);
     if (!cart.items.delete(productId)) throw notFound('ITEM_NOT_IN_CART', `Product '${productId}' is not in the cart`);
@@ -147,7 +152,7 @@ export class Shop {
   }
 
   // Early, advisory stock check at cart time (stock is NOT reserved by carts).
-  checkLineQuantity(product, qty) {
+  checkLineQuantity(product: Product, qty: number): void {
     if (qty > MAX_QTY_PER_LINE) throw badRequest('INVALID_QUANTITY', `at most ${MAX_QTY_PER_LINE} per line`);
     if (qty > product.inventory) {
       throw conflict('INSUFFICIENT_STOCK', `Only ${product.inventory} of '${product.id}' available`, {
@@ -164,7 +169,7 @@ export class Shop {
    *  - cart CHECKED_OUT      -> replay the stored order, no side effects
    * A retry that changes the coupon is a different request and is rejected.
    */
-  async checkout(cartId, body) {
+  async checkout(cartId: string, body: { couponCode?: unknown; acceptPriceChanges?: unknown } | undefined): Promise<{ order: Order; replayed: boolean }> {
     const cart = this.getCart(cartId);
     const couponCode = normalizeCode(body?.couponCode);
     const acceptPriceChanges = body?.acceptPriceChanges === true;
@@ -174,19 +179,19 @@ export class Shop {
         throw conflict('CHECKOUT_PARAMS_MISMATCH',
           'This cart already has a checkout with a different coupon', { couponCode: cart.checkoutCoupon });
       }
-      if (cart.status === 'CHECKED_OUT') return { order: this.orders.get(cart.orderId), replayed: true };
-      const order = await cart.inflight; // throws the same error if the attempt fails
+      if (cart.status === 'CHECKED_OUT') return { order: this.getOrder(cart.orderId!), replayed: true };
+      const order = await cart.inflight!; // throws the same error if the attempt fails
       return { order, replayed: true };
     }
 
     // ---- atomic section 1: validate and reserve (no awaits until payment) ----
     if (cart.items.size === 0) throw unprocessable('EMPTY_CART', 'Cannot check out an empty cart');
 
-    const lines = [];
-    const priceChanges = [];
-    const shortages = [];
+    const lines: OrderLine[] = [];
+    const priceChanges: unknown[] = [];
+    const shortages: unknown[] = [];
     for (const it of cart.items.values()) {
-      const p = this.products.get(it.productId);
+      const p = this.getProduct(it.productId);
       if (p.inventory < it.quantity) {
         shortages.push({ productId: p.id, requested: it.quantity, available: p.inventory });
       }
@@ -203,9 +208,9 @@ export class Shop {
       throw conflict('PRICE_CHANGED', 'Prices changed since items were added; review the cart and retry with acceptPriceChanges=true', { items: priceChanges });
     }
 
-    let coupon = null;
+    let coupon: Coupon | null = null;
     if (couponCode) {
-      coupon = this.coupons.get(couponCode);
+      coupon = this.coupons.get(couponCode) ?? null;
       if (!coupon) throw unprocessable('COUPON_INVALID', `Coupon '${couponCode}' does not exist`);
       if (coupon.status !== 'AVAILABLE') {
         throw conflict('COUPON_UNAVAILABLE', `Coupon is ${coupon.status}`, { status: coupon.status });
@@ -216,7 +221,7 @@ export class Shop {
     const discountCents = coupon ? percentDiscountCents(subtotalCents, coupon.percent) : 0;
     const totalCents = subtotalCents - discountCents;
 
-    for (const l of lines) this.products.get(l.productId).inventory -= l.quantity;
+    for (const l of lines) this.getProduct(l.productId).inventory -= l.quantity;
     if (coupon) coupon.status = 'RESERVED';
     cart.status = 'CHECKING_OUT';
     cart.checkoutCoupon = couponCode;
@@ -228,21 +233,23 @@ export class Shop {
     return { order, replayed: false };
   }
 
-  async payAndCommit({ cart, lines, coupon, subtotalCents, discountCents, totalCents }) {
-    let payment;
+  private async payAndCommit({ cart, lines, coupon, subtotalCents, discountCents, totalCents }: {
+    cart: Cart; lines: OrderLine[]; coupon: Coupon | null; subtotalCents: number; discountCents: number; totalCents: number;
+  }): Promise<Order> {
+    let payment: { id: string };
     try {
       payment = await this.payment.charge({ reference: cart.id, amountCents: totalCents });
     } catch (err) {
       // ---- atomic rollback: release everything section 1 held ----
-      for (const l of lines) this.products.get(l.productId).inventory += l.quantity;
+      for (const l of lines) this.getProduct(l.productId).inventory += l.quantity;
       if (coupon) coupon.status = 'AVAILABLE';
       cart.status = 'OPEN';
       cart.checkoutCoupon = undefined;
       cart.inflight = undefined;
-      throw new ApiError(402, 'PAYMENT_FAILED', 'Payment was not successful; nothing was reserved or charged', { reason: err.code ?? 'ERROR' });
+      throw new ApiError(402, 'PAYMENT_FAILED', 'Payment was not successful; nothing was reserved or charged', { reason: (err as { code?: string }).code ?? 'ERROR' });
     }
     // ---- atomic section 2: commit ----
-    const order = {
+    const order: Order = {
       id: randomUUID(),
       sequence: ++this.orderSeq,
       cartId: cart.id,
@@ -265,7 +272,7 @@ export class Shop {
     return order;
   }
 
-  getOrder(id) {
+  getOrder(id: string): Order {
     const o = this.orders.get(id);
     if (!o) throw notFound('ORDER_NOT_FOUND', `Order '${id}' does not exist`);
     return o;
@@ -282,7 +289,7 @@ export class Shop {
     const { milestoneN: n, couponPercent: x } = this.config;
     const reached = Math.floor(this.orders.size / n);
     const done = new Set([...this.coupons.values()].map((c) => c.milestone));
-    let milestone = null;
+    let milestone: number | null = null;
     for (let k = 1; k <= reached; k++) if (!done.has(k)) { milestone = k; break; }
     if (milestone === null) {
       throw conflict('NO_ELIGIBLE_MILESTONE', 'No unrewarded order milestone has been reached', {
@@ -290,7 +297,7 @@ export class Shop {
         nextMilestoneAtOrder: (reached + 1) * n,
       });
     }
-    const coupon = {
+    const coupon: Coupon = {
       code: `SAVE${x}-${randomBytes(4).toString('hex').toUpperCase()}`,
       percent: x,
       milestone,
@@ -306,13 +313,13 @@ export class Shop {
   }
 
   report() {
-    const byProduct = new Map();
+    const byProduct = new Map<string, number>();
     let gross = 0, discounts = 0, net = 0;
     for (const o of this.orders.values()) {
       gross += o.subtotalCents; discounts += o.discountCents; net += o.totalCents;
       for (const l of o.lines) byProduct.set(l.productId, (byProduct.get(l.productId) ?? 0) + l.quantity);
     }
-    const counts = { AVAILABLE: 0, RESERVED: 0, REDEEMED: 0 };
+    const counts: Record<Coupon['status'], number> = { AVAILABLE: 0, RESERVED: 0, REDEEMED: 0 };
     for (const c of this.coupons.values()) counts[c.status]++;
     return {
       currency: 'USD',
@@ -332,4 +339,4 @@ export class Shop {
 }
 
 const now = () => new Date().toISOString();
-const normalizeCode = (c) => (typeof c === 'string' && c.trim() ? c.trim().toUpperCase() : undefined);
+const normalizeCode = (c: unknown): string | undefined => (typeof c === 'string' && c.trim() ? c.trim().toUpperCase() : undefined);

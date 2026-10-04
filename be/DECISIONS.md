@@ -55,6 +55,9 @@ Stable `code` strings with structured `details`, HTTP status by category: 400 ma
 ## Transaction / concurrency / idempotency summary
 See the three decisions above. Checkout: atomic validate+reserve, payment, atomic commit-or-rollback. Coupon generation: one atomic block that selects the lowest unrewarded milestone and inserts the coupon, so double-clicks yield one coupon. Reports only read.
 
+## Decision: TypeScript, compiled with tsc
+Strict TypeScript models the state machines (`CartStatus`, `CouponStatus`) and domain records in `src/types.ts`, so illegal states are compile errors. Compiled with plain `tsc` to `dist/` rather than relying on Node's type stripping or a runner like tsx, to keep Node >= 20 support and avoid extra tooling. Cost: a build step before start/test.
+
 ## Implemented vs deferred
 Implemented: all required endpoints, seeded products, price-change policy, idempotent/concurrent checkout, coupon lifecycle, report, 9 tests incl. concurrency, docs.
 Deferred: durable storage; reservation expiry for crashed checkouts; coupon expiry/min-spend; auth; pagination of coupon list; request rate limiting; refunds/cancellation; OpenAPI file (endpoint table in `SERVICE.md` instead).

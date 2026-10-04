@@ -1,4 +1,6 @@
-export function loadConfig(env = process.env) {
+import type { Config } from './types.js';
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config & { port: number } {
   const n = Number(env.ORDER_MILESTONE_N ?? 5);
   const x = Number(env.COUPON_PERCENT_X ?? 10);
   if (!Number.isInteger(n) || n < 1) throw new Error('ORDER_MILESTONE_N must be an integer >= 1');
