@@ -1,16 +1,16 @@
 # Checkout & Rewards Service
 
-TypeScript (strict). Zero runtime dependencies; dev dependencies are only `typescript` and `@types/node`. Requires Node >= 20 (developed on 24).
+TypeScript (strict). Zero runtime dependencies; dev dependencies are only `typescript` and `@types/node`. Storage is SQLite via the built-in `node:sqlite`, so it requires **Node >= 22.5** (developed on 24) and no database server.
 
 ```bash
 cd be
 npm install
-npm start            # compiles to dist/ and serves http://localhost:3000   (PORT, ORDER_MILESTONE_N=5, COUPON_PERCENT_X=10)
-npm test             # compiles, then runs node:test on dist/
+npm start            # compiles to dist/ and serves http://localhost:3000   (PORT, DB_PATH=data/shop.db, ORDER_MILESTONE_N=5, COUPON_PERCENT_X=10)
+npm test             # compiles, then runs node:test on dist/ (includes tests that spawn 3 server processes on one DB)
 npm run typecheck    # tsc --noEmit
 ```
 
-Data is in memory and re-seeded on every start (6 products; `sneaker` has only 3 units).
+Data persists in the SQLite file `DB_PATH` (`:memory:` for a throwaway DB). Products are seeded if absent (6 products; `sneaker` has only 3 units); delete `data/` to reset. Several instances may share one DB file.
 Money is always integer cents (`*Cents`). Admin endpoints live under `/admin` (no auth implemented).
 
 ## Errors
@@ -22,7 +22,7 @@ All errors: `{ "error": { "code": "...", "message": "...", "details": {...} } }`
 | 402 | `PAYMENT_FAILED` (nothing reserved; safe to retry) |
 | 404 | `CART_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `ITEM_NOT_IN_CART`, `ORDER_NOT_FOUND`, `ROUTE_NOT_FOUND` |
 | 405 | `METHOD_NOT_ALLOWED` |
-| 409 | `INSUFFICIENT_STOCK`, `PRICE_CHANGED`, `CART_NOT_OPEN`, `COUPON_UNAVAILABLE`, `CHECKOUT_PARAMS_MISMATCH`, `NO_ELIGIBLE_MILESTONE` |
+| 409 | `INSUFFICIENT_STOCK`, `PRICE_CHANGED`, `CART_NOT_OPEN`, `COUPON_UNAVAILABLE`, `CHECKOUT_PARAMS_MISMATCH`, `CHECKOUT_IN_PROGRESS` (another instance is mid-checkout for this cart; retry shortly), `NO_ELIGIBLE_MILESTONE` |
 | 422 | `EMPTY_CART`, `COUPON_INVALID` |
 
 ## Endpoints

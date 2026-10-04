@@ -23,5 +23,5 @@ export async function start({ n = 3, x = 10, payment, products }: { n?: number; 
     if (added.status !== 201) throw new Error(`setup failed: ${JSON.stringify(added.body)}`);
     return cart.id;
   };
-  return { shop, gateway, call, cartWith, close: () => server.close() };
+  return { shop, gateway, call, cartWith, close: () => { server.close(); shop.close(); } };
 }

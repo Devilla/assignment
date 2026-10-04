@@ -4,7 +4,7 @@
   "description": "Reliable checkout and rewards service",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=22.5" },
   "scripts": {
     "build": "tsc",
     "start": "tsc && node dist/src/server.js",

@@ -33,7 +33,7 @@ test('retried and simultaneous checkouts of one cart create one order and deduct
     assert.equal(all.filter((r) => r.status === 201).length, 1, 'exactly one real creation');
     assert.equal(late.headers.get('idempotent-replayed'), 'true');
     assert.equal(s.shop.getProduct('widget').inventory, before - 2);
-    assert.equal(s.shop.orders.size, 1);
+    assert.equal((await s.call('GET', '/admin/report')).body.totalOrders, 1);
     assert.equal(s.gateway.charges.length, 1);
   } finally { s.close(); }
 });
@@ -72,8 +72,8 @@ test('failed payment releases stock and the coupon, and the cart can be retried'
     assert.equal(bad.status, 402);
     assert.equal(bad.body.error.code, 'PAYMENT_FAILED');
     assert.equal(s.shop.getProduct('gadget').inventory, 50, 'stock restored');
-    assert.equal(s.shop.coupons.get(coupon.code)?.status, 'AVAILABLE', 'coupon not lost');
-    assert.equal(s.shop.orders.size, 1, 'no order recorded');
+    assert.equal(s.shop.listCoupons().find((c) => c.code === coupon.code)?.status, 'AVAILABLE', 'coupon not lost');
+    assert.equal((await s.call('GET', '/admin/report')).body.totalOrders, 1, 'no order recorded');
     fail = false;
     const good = await s.call('POST', `/carts/${cart}/checkout`, { couponCode: coupon.code });
     assert.equal(good.status, 201);

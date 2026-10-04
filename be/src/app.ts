@@ -11,12 +11,8 @@ interface Ctx { params: Record<string, string>; body: any }
 interface Out { status: number; body: unknown; headers?: Record<string, string> }
 interface Route { method: string; re: RegExp; handler: (ctx: Ctx) => Out | Promise<Out> }
 
-export function createShop(opts: { config?: Config; payment?: PaymentGateway; products?: Product[] } = {}): Shop {
-  return new Shop({
-    config: opts.config ?? loadConfig(),
-    payment: opts.payment ?? new FakePaymentGateway(),
-    products: opts.products ?? seedProducts(),
-  });
+export function createShop(opts: { config?: Config; payment?: PaymentGateway; products?: Product[]; afterCartRead?: () => Promise<void> } = {}): Shop {
+  return new Shop(opts.config ?? loadConfig(), opts.payment ?? new FakePaymentGateway(), opts.products ?? seedProducts(), opts.afterCartRead);
 }
 
 // Admin operations live under /admin. Authn/authz is intentionally not implemented.
@@ -27,7 +23,7 @@ export function buildRoutes(shop: Shop): Route[] {
 
   add('GET', '/products', () => ({ status: 200, body: { products: shop.listProducts() } }));
   add('POST', '/carts', () => ({ status: 201, body: shop.createCart() }));
-  add('GET', '/carts/:id', ({ params }) => ({ status: 200, body: shop.viewCart(shop.getCart(params.id)) }));
+  add('GET', '/carts/:id', ({ params }) => ({ status: 200, body: shop.viewCart(params.id) }));
   add('POST', '/carts/:id/items', ({ params, body }) => ({ status: 201, body: shop.addItem(params.id, body) }));
   add('PUT', '/carts/:id/items/:productId', ({ params, body }) => ({ status: 200, body: shop.setItemQuantity(params.id, params.productId, body) }));
   add('DELETE', '/carts/:id/items/:productId', ({ params }) => ({ status: 200, body: shop.removeItem(params.id, params.productId) }));

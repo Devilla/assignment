@@ -1,16 +1,6 @@
 export interface Product { id: string; name: string; priceCents: number; inventory: number }
-export interface Config { milestoneN: number; couponPercent: number; port?: number }
+export interface Config { milestoneN: number; couponPercent: number; port?: number; dbPath?: string }
 export type CartStatus = 'OPEN' | 'CHECKING_OUT' | 'CHECKED_OUT';
-export interface CartItem { productId: string; quantity: number; priceWhenAddedCents: number }
-export interface Cart {
-  id: string;
-  status: CartStatus;
-  items: Map<string, CartItem>;
-  createdAt: string;
-  orderId?: string;
-  checkoutCoupon?: string;
-  inflight?: Promise<Order>;
-}
 export interface OrderLine { productId: string; name: string; quantity: number; unitPriceCents: number; lineTotalCents: number }
 export interface Order {
   id: string;
