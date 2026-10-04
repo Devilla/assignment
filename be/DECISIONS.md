@@ -1,6 +1,6 @@
 # DECISIONS
 
-Time spent: roughly 3 hours equivalent of work (design, implementation, tests, docs). Persistence is in-memory by choice (see below).
+Time spent: **TODO: fill in your actual time.** Persistence is in-memory by choice (see below).
 
 ## System invariants
 1. **No oversell:** for every product, `inventory >= 0`, and `initial = current + sum(order line quantities)` (+ in-flight reservations).
@@ -67,7 +67,7 @@ Deferred: durable storage; reservation expiry for crashed checkouts; coupon expi
 - A sweeper releases reservations older than a timeout; an outbox for payment-confirmed events. Report becomes SQL aggregates (or a read replica).
 
 ## AI usage
-I used Claude Code to draft the structure and code, then reviewed the invariants myself. Example of redirecting it: the first design the AI suggested was a conventional "validate, pay, then decrement stock" flow with an `Idempotency-Key` header. I rejected both parts: validate-pay-decrement has a check-then-act race across the payment `await` (two buyers of the last sneaker both pass validation), so I moved to reserve-then-pay; and the header was redundant since a cart can only yield one order, so I used cart state as the key, which also lets concurrent duplicates join the same in-flight attempt. I validated behavior with concurrency tests under an artificially slow payment gateway and by deleting the reservation line to confirm the tests fail.
+**TODO: edit to reflect your own experience before submitting.** This submission was produced with Claude Code (the assistant wrote the code, tests and docs in one session; the human owner reviewed the result). Concretely verified rather than trusted: tests run under an artificially slow payment gateway so requests interleave across the `await`, and a mutation check (deleting the stock-reservation line) confirmed three tests fail. One small correction made along the way: the `npm test` script initially passed a directory to `node --test`, which fails on Node 24, so it was changed to a glob. Add an example where you yourself corrected or redirected the AI.
 
 ## What I'd examine first with two more hours
 1. Port storage to SQLite/Postgres with the conditional-update scheme above and rerun the same tests against it, since in-memory atomicity hides real isolation bugs.
