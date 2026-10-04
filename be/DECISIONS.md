@@ -1,6 +1,6 @@
 # DECISIONS
 
-Time spent: **TODO: fill in your actual time.** Persistence is SQLite (see the storage decision).
+Time spent: 1 Hour 15 minutes, since I'm travelling. Persistence is SQLite (see the storage decision).
 
 ## System invariants
 1. **No oversell:** for every product, `inventory >= 0`, and `initial = current + sum(order line quantities)` (+ in-flight reservations).
